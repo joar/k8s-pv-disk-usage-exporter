@@ -1,0 +1,4 @@
+psutil==5.2.2
+aiohttp==2.2.0
+attrs==17.2.0
+# structlog==17.2.0
