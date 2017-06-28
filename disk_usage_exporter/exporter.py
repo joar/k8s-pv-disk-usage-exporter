@@ -1,7 +1,8 @@
 import asyncio
 import enum
 from concurrent.futures import ProcessPoolExecutor
-from typing import List, Tuple
+from pathlib import Path
+from typing import List, Tuple, Union
 
 import aiohttp
 import attr
@@ -20,12 +21,18 @@ class Loggable:
 
 
 @attr.s
-class Context:
-    paths = attr.ib()  # type: List[str]
+class Context(Loggable):
+    paths = attr.ib()  # type: List[Path]
 
     executor = attr.ib(
         default=attr.Factory(ProcessPoolExecutor)
     )
+
+    def __structlog__(self):
+        log = super(Context, self).__structlog__()
+        log.pop('executor')
+        log['paths'] = [str(path) for path in log['paths']]
+        return log
 
 
 class MetricValueType(enum.Enum):
@@ -49,22 +56,22 @@ class Metric(Loggable):
 
 class Metrics(enum.Enum):
     USAGE_PERCENT = Metric(
-        'disk_usage_percent',
+        'disk_usage_percent_used',
         MetricValueType.GAUGE,
         'Percentage of non-root filesystem used',
     )
     AVAILABLE_BYTES = Metric(
-        'disk_usage_available_bytes',
+        'disk_usage_bytes_available',
         MetricValueType.GAUGE,
         'Bytes available to user',
     )
     USAGE_BYTES = Metric(
-        'disk_usage_bytes',
+        'disk_usage_bytes_used',
         MetricValueType.GAUGE,
         'Bytes of user data on filesystem.'
     )
     TOTAL_BYTES = Metric(
-        'disk_usage_total',
+        'disk_usage_bytes_total',
         MetricValueType.GAUGE,
         'Total bytes of user storage',
     )
@@ -127,11 +134,14 @@ async def get_response_text(url: str) -> Tuple[ClientResponse, str]:
 class MetricsHandler:
     def __init__(self, context: Context):
         self.ctx = context
+        _logger.info('metrics.create-handler', context=context)
 
     async def __call__(self, req, *, loop=None):
         loop = loop or asyncio.get_event_loop()
 
-        _log = _logger.new()
+        _log = _logger.new(
+            paths=self.ctx.paths
+        )
 
         futures = [
             loop.run_in_executor(
@@ -142,7 +152,9 @@ class MetricsHandler:
             for path in self.ctx.paths
         ]
 
+        _log.info('metrics.get-values.start')
         path_values = await asyncio.gather(*futures)
+        _log.info('metrics.get-values.complete', path_values=path_values)
         _log.debug('metrics.values.got-values', path_values=path_values)
 
         resp = web.StreamResponse(
@@ -155,7 +167,7 @@ class MetricsHandler:
         await resp.prepare(req)
         _log.debug('metrics.response.headers-sent', resp=resp)
 
-        for member in Metrics.__members__.values():
+        for member in Metrics:
             resp.write(str(member.value).encode('utf-8'))
 
         for values in path_values:

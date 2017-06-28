@@ -1,6 +1,7 @@
 import sys
 import logging
 import logging.config
+from pathlib import Path
 
 import structlog
 from aiohttp import web
@@ -99,6 +100,7 @@ def main(argv=None):
         'paths',
         help='Filesystem path to export metrics for',
         nargs='+',
+        type=Path,
         metavar='PATH',
     )
 
