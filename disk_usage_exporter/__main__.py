@@ -37,6 +37,10 @@ def configure_logging(for_humans=False, level=logging.INFO):
         structlog.stdlib.add_log_level,
         timestamper,
     ]
+    if for_humans:
+        pre_chain += [
+            structlog.processors.format_exc_info,
+        ]
 
     processors = [
         structlog.stdlib.filter_by_level,

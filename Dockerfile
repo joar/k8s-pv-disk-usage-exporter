@@ -3,6 +3,8 @@ FROM python:3.6-alpine
 WORKDIR /app
 
 COPY requirements.txt /app/
+
+# Pre-install requirements
 RUN apk add --no-cache --virtual .build-deps \
         gcc \
         libc-dev \
@@ -10,8 +12,11 @@ RUN apk add --no-cache --virtual .build-deps \
     && pip install -r requirements.txt \
     && apk del .build-deps
 
-COPY  LICENSE /app/
+# Add application code
+COPY  setup.py LICENSE /app/
 COPY ./disk_usage_exporter /app/disk_usage_exporter
-ENV PYTHONPATH=/app/
 
-ENTRYPOINT ["python", "-m", "disk_usage_exporter"]
+# Install application package
+RUN python setup.py install
+
+CMD ["disk-usage-exporter"]
