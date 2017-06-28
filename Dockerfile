@@ -16,6 +16,8 @@ RUN apt-get update \
         linux-libc-dev \
     && apt-get autoremove --purge --yes
 
-COPY disk_usage_exporter.py LICENSE /app/
+COPY  LICENSE /app/
+COPY ./disk_usage_exporter /app/disk_usage_exporter
+ENV PYTHONPATH=/app/
 
-ENTRYPOINT ["python", "disk_usage_exporter.py"]
+ENTRYPOINT ["python", "-m", "disk_usage_exporter"]

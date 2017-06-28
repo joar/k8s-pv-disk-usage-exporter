@@ -1,20 +1,27 @@
-import enum
-import json
 import asyncio
+import enum
 from concurrent.futures import ProcessPoolExecutor
-from typing import Optional
+from typing import List, Tuple
 
+import aiohttp
 import attr
 import psutil
-from aiohttp import web
+import structlog
+from aiohttp import ClientResponse, web
+
+_logger = structlog.get_logger(__name__)
+
+
+class Loggable:
+    def __structlog__(self):
+        if attr.has(type(self)):
+            return attr.asdict(self)
+        return self
 
 
 @attr.s
 class Context:
-    paths = attr.ib()
-    metrics_content_type = attr.ib(
-        default='text/plain'
-    )
+    paths = attr.ib()  # type: List[str]
 
     executor = attr.ib(
         default=attr.Factory(ProcessPoolExecutor)
@@ -30,12 +37,12 @@ class MetricValueType(enum.Enum):
 
 
 @attr.s(slots=True)
-class Metric:
+class Metric(Loggable):
     name = attr.ib()  # type: str
     value_type = attr.ib()  # type: MetricValueType
     help = attr.ib(default='')  # type: str
 
-    def format(self):
+    def __str__(self):
         return f'# HELP {self.name} {self.help}\n' \
                f'# TYPE {self.name} {self.value_type.name}\n'
 
@@ -64,12 +71,12 @@ class Metrics(enum.Enum):
 
 
 @attr.s(slots=True)
-class Value:
+class Value(Loggable):
     metric = attr.ib()  # type: Metrics
     value = attr.ib()
     labels = attr.ib(default=attr.Factory(dict))
 
-    def format(self):
+    def __str__(self):
         label_pairs = ','.join(
             f'{key}="{value}"'
             for key, value in self.labels.items()
@@ -80,7 +87,7 @@ class Value:
         return f'{self.metric.value.name}{label_pairs} {self.value!r}\n'
 
 
-def metric_values(path):
+def metric_values(path: str) -> List[Value]:
     disk_usage = psutil.disk_usage(path)
 
     labels = dict(
@@ -111,14 +118,21 @@ def metric_values(path):
     ]
 
 
+async def get_response_text(url: str) -> Tuple[ClientResponse, str]:
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            return resp, await resp.text()
+
+
 class MetricsHandler:
     def __init__(self, context: Context):
         self.ctx = context
 
     async def __call__(self, req, *, loop=None):
         loop = loop or asyncio.get_event_loop()
-        body = ''.join(member.value.format()
-                       for member in Metrics.__members__.values())
+
+        _log = _logger.new()
+
         futures = [
             loop.run_in_executor(
                 self.ctx.executor,
@@ -127,53 +141,37 @@ class MetricsHandler:
             )
             for path in self.ctx.paths
         ]
+
         path_values = await asyncio.gather(*futures)
-        for values in path_values:
-            body += ''.join(value.format()
-                            for value in values)
-        return web.Response(
-            content_type=self.ctx.metrics_content_type,
-            body=body,
+        _log.debug('metrics.values.got-values', path_values=path_values)
+
+        resp = web.StreamResponse(
+            status=200,
+            reason='OK',
+            headers={
+                'Content-Type': 'text/plain; version=0.0.4',
+            }
         )
+        await resp.prepare(req)
+        _log.debug('metrics.response.headers-sent', resp=resp)
+
+        for member in Metrics.__members__.values():
+            resp.write(str(member.value).encode('utf-8'))
+
+        for values in path_values:
+            for value in values:
+                b = str(value).encode('utf-8')
+                _log.debug('resp.write', b=b)
+                resp.write(b)
+
+        await resp.drain()
+
+        await resp.write_eof()
+
+        return resp
 
 
 def get_app(context):
     app = web.Application()
     app.router.add_get('/metrics', MetricsHandler(context))
     return app
-
-
-def run_app(context: Context, **kwargs):
-    web.run_app(get_app(context), **kwargs)
-
-
-def main(argv=None):
-    import argparse
-    parser = argparse.ArgumentParser(
-        description='prometheus disk usage metrics exporter'
-    )
-
-    parser.add_argument(
-        'paths',
-        help='Filesystem path to export metrics for',
-        nargs='+',
-        metavar='PATH',
-    )
-    parser.add_argument(
-        '--host',
-        help='Interface to listen on',
-    )
-    parser.add_argument(
-        '--port',
-        help='Port number to listen on',
-        type=int,
-    )
-
-    args = parser.parse_args(args=argv)
-
-    context = Context(paths=args.paths)
-
-    run_app(context, host=args.host, port=args.port)
-
-if __name__ == '__main__':
-    main()
