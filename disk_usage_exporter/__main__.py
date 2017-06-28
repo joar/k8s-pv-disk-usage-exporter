@@ -22,8 +22,8 @@ def add_severity(logger, method_name, event_dict):
     return event_dict
 
 
-def configure_logging(as_json=False, level=logging.INFO):
-    if as_json:
+def configure_logging(for_humans=False, level=logging.INFO):
+    if not for_humans:
         renderer = structlog.processors.JSONRenderer()
     else:
         renderer = structlog.dev.ConsoleRenderer(
@@ -97,6 +97,7 @@ def main(argv=None):
         nargs='+',
         metavar='PATH',
     )
+
     parser.add_argument(
         '--listen-host',
         help='Interface to listen on',
@@ -107,25 +108,28 @@ def main(argv=None):
         default=9274,
         type=int,
     )
+
     parser.add_argument(
         '--log-level',
         help='Log level',
         default='INFO',
     )
     parser.add_argument(
-        '--proxy',
-        help='URL to second exporter to proxy metrics from',
-    )
-    parser.add_argument(
-        '--log-json',
+        '--log-human',
         action='store_true',
-        help='Emit logging messages as JSON',
+        help='Emit logging messages for humans. Messages are emitted as JSON '
+             'lines by default',
     )
+
+    # parser.add_argument(
+    #     '--proxy',
+    #     help='URL to second exporter to proxy metrics from',
+    # )
 
     args = parser.parse_args(args=argv)
 
     configure_logging(
-        as_json=args.log_json,
+        for_humans=args.log_human,
         level=getattr(logging, args.log_level)
     )
 
