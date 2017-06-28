@@ -1,20 +1,14 @@
-FROM python:3.6-slim
+FROM python:3.6-alpine
 
 WORKDIR /app
 
 COPY requirements.txt /app/
-RUN apt-get update \
-    && apt-get install \
-        --yes \
-        --no-install-recommends \
+RUN apk add --no-cache --virtual .build-deps \
         gcc \
-        libc6-dev \
-        linux-libc-dev \
+        libc-dev \
+        linux-headers \
     && pip install -r requirements.txt \
-    && apt-get remove --purge --yes \
-        gcc \
-        linux-libc-dev \
-    && apt-get autoremove --purge --yes
+    && apk del .build-deps
 
 COPY  LICENSE /app/
 COPY ./disk_usage_exporter /app/disk_usage_exporter
