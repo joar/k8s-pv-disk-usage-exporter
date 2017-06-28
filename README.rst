@@ -22,5 +22,5 @@ Python 3.6
     Used to extract the disk usage numbers.
 `aiohttp <http://aiohttp.readthedocs.io/en/stable/web.html>`_
     Used to serve the metrics over HTTP.
-`attrs <http>//attrs.readthedocs.io/>`_
+`attrs <http://attrs.readthedocs.io/>`_
     Used to easily create datastructures.
