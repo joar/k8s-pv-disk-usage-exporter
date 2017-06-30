@@ -1,5 +1,5 @@
 ################################################################################
-                              disk-usage-exporter
+                           k8s-pv-disk-usage-exporter
 ################################################################################
 
 .. |docker-image| image:: https://quay.io/repository/joar/disk-usage-exporter/status
@@ -10,8 +10,7 @@
 |docker-image|_
 
 A `prometheus exporter <https://prometheus.io/docs/instrumenting/exporters/>`_
-that exports disk usage stats from a non-superuser perspective, hopefully taking
-into account things such as ext's Reserved blocks.
+that exports disk usage for all PersistentVolumes mounted on a Kubernetes Node.
 
 ================================================================================
 Status
@@ -72,6 +71,8 @@ Python 3.6
     Includes asyncio and f-strings.
 `psutil <https://pythonhosted.org/psutil/>`_
     Used to extract the disk usage numbers.
+`pykube <https://github.com/kelproject/pykube>`_
+    Used to query Kubernetes for PV information..
 `aiohttp <http://aiohttp.readthedocs.io/en/stable/web.html>`_
     Used to serve the metrics over HTTP.
 `attrs <http://attrs.readthedocs.io/>`_

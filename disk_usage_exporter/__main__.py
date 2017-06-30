@@ -7,8 +7,7 @@ import structlog
 from aiohttp import web
 
 from disk_usage_exporter.exporter import get_app
-from disk_usage_exporter.exporter import Context
-
+from disk_usage_exporter.context import Context
 
 _logger = structlog.get_logger()
 
@@ -97,14 +96,6 @@ def main(argv=None):
     )
 
     parser.add_argument(
-        'paths',
-        help='Filesystem path to export metrics for',
-        nargs='+',
-        type=Path,
-        metavar='PATH',
-    )
-
-    parser.add_argument(
         '--listen-host',
         help='Interface to listen on',
     )
@@ -127,11 +118,6 @@ def main(argv=None):
              'lines by default',
     )
 
-    # parser.add_argument(
-    #     '--proxy',
-    #     help='URL to second exporter to proxy metrics from',
-    # )
-
     args = parser.parse_args(args=argv)
 
     configure_logging(
@@ -139,7 +125,7 @@ def main(argv=None):
         level=getattr(logging, args.log_level)
     )
 
-    context = Context(paths=args.paths)
+    context = Context()
 
     web.run_app(
         get_app(context),

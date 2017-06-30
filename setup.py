@@ -5,6 +5,7 @@ install_requires = [
     'aiohttp==2.2.0',
     'attrs==17.2.0',
     'structlog[dev]==17.2.0',
+    'pykube==0.15.0',
 ]
 
 setup(
