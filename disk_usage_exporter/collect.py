@@ -40,10 +40,19 @@ async def get_partitions(
         everything
     )  # type: List[psutil._common.sdiskpart]
 
+    def partition_filter(partition):
+        is_mounted_on_host = partition.mountpoint.startswith(r'/rootfs')
+        is_pv = get_pv_name(partition) is not None
+
+        return (
+            is_mounted_on_host and
+            ctx.export_all_mounts or is_pv
+        )
+
     return [
         Partition(*partition)
         for partition in partitions
-        if partition.mountpoint.startswith(r'/rootfs')
+        if partition_filter(partition)
     ]
 
 
@@ -208,12 +217,13 @@ async def collect_metrics(ctx: Context, *, loop=None) -> List[List[MetricValue]]
 MOUNTPOINT_PV_RE = re.compile(r'''
 ^
 (?P<prefix>
-    .*?
+    .*
     /kubelet/pods/
     .*?
-    volumes/
-    .*?
-    kubernetes.io-gce-pd/
+    volumes/kubernetes.io
+    # A tilde, not a hyphen
+    ~
+    gce-pd/
 )
 (?P<pv_name>
     [^/]+
@@ -230,14 +240,10 @@ def get_pv_name(partition: Partition) -> Optional[str]:
     return match.group('pv_name')
 
 
-
 ROOTFS_RE = re.compile(r'^/rootfs')
+
 
 def labels_for_partition(partition: Partition) -> Dict[str, str]:
     labels = attr.asdict(partition)
     labels['mountpoint'] = ROOTFS_RE.sub('', labels['mountpoint'])
     return labels
-
-
-def labels_for_gce_pd(partition, labels):
-    pass

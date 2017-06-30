@@ -107,6 +107,11 @@ def main(argv=None):
     )
 
     parser.add_argument(
+        '--export-all-mounts',
+        help='Export metrics for all mounts. Defaults to export only PV mounts',
+    )
+
+    parser.add_argument(
         '--log-level',
         help='Log level',
         default='INFO',
@@ -125,7 +130,7 @@ def main(argv=None):
         level=getattr(logging, args.log_level)
     )
 
-    context = Context()
+    context = Context(export_all_mounts=args.export_all_mounts)
 
     web.run_app(
         get_app(context),

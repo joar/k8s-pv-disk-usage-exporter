@@ -17,7 +17,7 @@ def make_kube_client():
 
 @attr.s
 class Context(Loggable):
-    labels = attr.ib(default=attr.Factory(dict))
+    export_all_mounts = attr.ib(default=True)  # type: bool
 
     kube_client = attr.ib(default=attr.Factory(make_kube_client))
 
