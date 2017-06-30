@@ -44,12 +44,8 @@ Usage
     usage: disk-usage-exporter [-h] [--listen-host LISTEN_HOST]
                                [--listen-port LISTEN_PORT] [--log-level LOG_LEVEL]
                                [--log-human]
-                               PATH [PATH ...]
 
     prometheus disk usage metrics exporter
-
-    positional arguments:
-      PATH                  Filesystem path to export metrics for
 
     optional arguments:
       -h, --help            show this help message and exit
@@ -61,7 +57,6 @@ Usage
                             Log level
       --log-human           Emit logging messages for humans. Messages are emitted
                             as JSON lines by default
-
 
 ================================================================================
 Technology
