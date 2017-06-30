@@ -36,8 +36,10 @@ won't be able to access PV mountpoints.
 -   Run |disk_partitions|.
 -   Extract the PV name from ``Partition.mountpoints``.
 -   Then for each partition:
+
     -   Run |disk_usage|. (async)
     -   Query Kubernetes for PV and PVC labels. (async)
+
 -   Return ``text/plain`` `prometheus metrics`_.
 
 .. _`prometheus metrics`: https://prometheus.io/docs/instrumenting/exposition_formats/
