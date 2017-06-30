@@ -26,22 +26,22 @@ class Metric(Loggable):
 
 class Metrics(enum.Enum):
     USAGE_PERCENT = Metric(
-        'disk_usage_percent_used',
+        'pv_disk_usage_percent_used',
         MetricValueType.GAUGE,
         'Percentage of non-root filesystem used',
     )
     AVAILABLE_BYTES = Metric(
-        'disk_usage_bytes_available',
+        'pv_disk_usage_bytes_available',
         MetricValueType.GAUGE,
         'Bytes available to user',
     )
     USAGE_BYTES = Metric(
-        'disk_usage_bytes_used',
+        'pv_disk_usage_bytes_used',
         MetricValueType.GAUGE,
         'Bytes of user data on filesystem.'
     )
     TOTAL_BYTES = Metric(
-        'disk_usage_bytes_total',
+        'pv_disk_usage_bytes_total',
         MetricValueType.GAUGE,
         'Total bytes of user storage',
     )

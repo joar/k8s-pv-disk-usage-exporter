@@ -25,12 +25,20 @@ Overview
 .. |disk_usage| replace:: ``psutil.disk_usage()``
 .. _disk_usage: https://pythonhosted.org/psutil/#psutil.disk_usage
 
-|name| takes a number of filesystem paths as command-line arguments and listens
-for HTTP requests.
+.. |disk_partitions| replace:: ``psutil.disk_partitions()``
+.. _disk_partitions: https://pythonhosted.org/psutil/#psutil.disk_partitions
 
-Once a request to ``/metrics`` arrives, |name| will run |disk_usage|_ for each
-of the filesystem paths and return the results of |disk_usage|_ as
-``text/plain`` `prometheus metrics`_.
+|name| needs to run in a privileged container, at least on GKE, otherwise it
+won't be able to access PV mountpoints.
+
+|name| responds to HTTP requests to ``/metrics``, for each metric |name| will:
+
+-   Run |disk_partitions|.
+-   Extract the PV name from ``Partition.mountpoints``.
+-   Then for each partition:
+    -   Run |disk_usage|. (async)
+    -   Query Kubernetes for PV and PVC labels. (async)
+-   Return ``text/plain`` `prometheus metrics`_.
 
 .. _`prometheus metrics`: https://prometheus.io/docs/instrumenting/exposition_formats/
 
