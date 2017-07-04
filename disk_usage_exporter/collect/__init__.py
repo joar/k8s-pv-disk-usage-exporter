@@ -1,6 +1,6 @@
 import asyncio
 import re
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 
 import attr
 import psutil
@@ -184,6 +184,13 @@ async def partition_metrics(
     return metric_values
 
 
+def prefix_keys(prefix: str, dict_: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        f'{prefix}{key}': value
+        for key, value in dict_.items()
+    }
+
+
 async def partition_pv_labels(
         ctx: Context,
         partition: Partition,
@@ -229,6 +236,8 @@ async def partition_pv_labels(
 
     claim_ref = pv.obj['spec'].get('claimRef')
 
+    pvc_labels = None
+
     if claim_ref is not None:
         pvc_labels = await get_resource_labels(
             ctx,
@@ -246,6 +255,17 @@ async def partition_pv_labels(
         })
         for key, value in pvc_labels.items():
             labels[f'pvc_{key}'] = value
+
+    # Generalize PV and PVC labels under "volume", decide source based on if PVC
+    # has labels.
+    if pvc_labels is not None:
+        labels['volume_label_source'] = 'pvc'
+        labels['volume_name'] = claim_ref['name']
+        labels.update(prefix_keys('volume_', pvc_labels))
+    else:
+        labels['volume_label_source'] = 'pv'
+        labels['volume_name'] = pv.name
+        labels.update(prefix_keys('volume_', pv.labels))
 
     return labels
 
