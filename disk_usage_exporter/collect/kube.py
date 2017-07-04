@@ -2,10 +2,12 @@ import asyncio
 from typing import Dict, Optional
 
 import pykube
+import structlog
 
-from disk_usage_exporter.collect import _logger
 from disk_usage_exporter.context import Context
 from disk_usage_exporter.errors import ResourceNotFound
+
+_logger = structlog.get_logger(__name__)
 
 
 def _get_resource(
