@@ -46,7 +46,7 @@ def main(argv=None):
         level=getattr(logging, args.log_level)
     )
 
-    context = Context(export_all_mounts=args.export_all_mounts)
+    context = Context()
 
     web.run_app(
         get_app(context),
