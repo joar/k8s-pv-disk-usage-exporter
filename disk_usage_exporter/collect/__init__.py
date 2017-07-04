@@ -7,15 +7,19 @@ import psutil
 import pykube
 import structlog
 
+from disk_usage_exporter.collect.kube import (
+    get_resource,
+    get_resource_labels
+)
 from disk_usage_exporter.context import Context
-
+from disk_usage_exporter.errors import ResourceNotFound
 from disk_usage_exporter.logging import Loggable
 from disk_usage_exporter.metrics import MetricValue, Metrics
 
 _logger = structlog.get_logger(__name__)
 
 
-@attr.s(slots=True)
+@attr.s(slots=True, frozen=True, hash=True)
 class Partition(Loggable):
     """
     Replaces psutil._common.sdiskpart, the attribute order must be the same
@@ -27,9 +31,49 @@ class Partition(Loggable):
     opts = attr.ib()  # type: str
 
 
+CONTAINERIZED_MOUNTER_RE = re.compile(r'''
+^/rootfs/home/kubernetes/containerized_mounter/
+''', re.VERBOSE)
+
+
+def filter_containerized_mounter(partition) -> bool:
+    match = CONTAINERIZED_MOUNTER_RE.match(partition.mountpoint)
+
+    return match is None
+
+
+def filter_pv(partition: Partition) -> bool:
+    return get_pv_name(partition) is not None
+
+
+def partition_filter(ctx: Context, partition: Partition) -> bool:
+    is_not_mounter_volume = filter_containerized_mounter(partition)
+    is_mounted_on_host = partition.mountpoint.startswith(r'/rootfs')
+    is_pv = filter_pv(partition)
+
+    include = (
+        is_not_mounter_volume and
+        is_mounted_on_host and
+        is_pv
+    )
+
+    _log = _logger.new(
+        is_mounted_on_host=is_mounted_on_host,
+        is_pv=is_pv,
+        is_containerized_mounter=is_not_mounter_volume,
+        include=include
+    )
+
+    _log.debug(
+        'partition.filter',
+        key_hints=['included', 'is_pv', 'is_mounted_on_host']
+    )
+
+    return include
+
+
 async def get_partitions(
         ctx: Context,
-        everything: bool=False,
         *, loop=None
 ) -> List[Partition]:
     loop = loop or asyncio.get_event_loop()
@@ -37,23 +81,25 @@ async def get_partitions(
     partitions = await loop.run_in_executor(
         ctx.executor,
         psutil.disk_partitions,
-        everything
     )  # type: List[psutil._common.sdiskpart]
 
-    def partition_filter(partition):
-        is_mounted_on_host = partition.mountpoint.startswith(r'/rootfs')
-        is_pv = get_pv_name(partition) is not None
-
-        return (
-            is_mounted_on_host and
-            ctx.export_all_mounts or is_pv
-        )
-
-    return [
+    all_partitions = [
         Partition(*partition)
         for partition in partitions
-        if partition_filter(partition)
     ]
+
+    partitions = [
+        partition for partition in all_partitions
+        if partition_filter(ctx, partition)
+    ]
+
+    _logger.debug(
+        'partitions.get',
+        key_hints=['partitions'],
+        partitions=partitions,
+        excluded=list(set(all_partitions) - set(partitions)),
+    )
+    return partitions
 
 
 def values_from_path(path: str, labels: Optional[Dict]=None) -> List[MetricValue]:
@@ -98,7 +144,7 @@ async def partition_metrics(
     )
 
     metric_values_fut = asyncio.ensure_future(
-            loop.run_in_executor(
+        loop.run_in_executor(
             ctx.executor,
             values_from_path,
             partition.mountpoint,
@@ -114,27 +160,36 @@ async def partition_metrics(
 
     metric_values = metric_values_fut.result()
 
-    pv_labels = pv_labels_fut.result()
+    try:
+        pv_labels = pv_labels_fut.result()
+    except Exception as exc:
+        _log.exception(
+            'collect.partition-metrics.pv-labels.error',
+            message='Could not get PV labels for partition',
+        )
+    else:
+        if pv_labels is not None:
+            def update_labels(value: MetricValue):
+                value.labels.clear()
+                value.labels.update(pv_labels)
+                return value
 
-    if pv_labels is not None:
-        def update_labels(value: MetricValue):
-            value.labels.update(pv_labels)
-            return value
-
-        metric_values = [
-            update_labels(value)
-            for value in metric_values
-        ]
+            metric_values = [
+                update_labels(value)
+                for value in metric_values
+            ]
 
     _log.info('metrics.collected-for-partition', metric_values=metric_values)
 
     return metric_values
 
+
 async def partition_pv_labels(
         ctx: Context,
         partition: Partition,
-        *, loop=None
-) -> Optional[Dict[str, str]]:
+        *,
+        loop=None
+) -> Dict[str, str]:
     loop = loop or asyncio.get_event_loop()
     _log = _logger.new(
         partition=partition
@@ -142,22 +197,24 @@ async def partition_pv_labels(
     pv_name = get_pv_name(partition)
 
     if pv_name is None:
-        return
+        _log.debug(
+            'partition.no-pv-labels',
+            message='Could not get PV name for partition',
+            partition=partition
+        )
+        raise ResourceNotFound(
+            'Could not get PV name for partition',
+            partition=partition
+        )
 
     _log = _log.bind(pv_name=pv_name)
 
-    pv = await loop.run_in_executor(
-        ctx.executor,
-        pykube.objects.PersistentVolume.objects(ctx.kube_client).get_or_none,
+    pv = await get_resource(
+        ctx,
+        pykube.objects.PersistentVolume,
         pv_name,
-    )  # type: Optional[pykube.objects.PersistentVolume]
-
-    if pv is None:
-        _log.error(
-            'pv.not-found',
-            message=f'Could not find a PersistentVolume with name {pv_name}',
-        )
-        return
+        loop=loop,
+    )  # type: pykube.objects.PersistentVolume
 
     labels = {
         'pv_name': pv_name
@@ -165,32 +222,30 @@ async def partition_pv_labels(
 
     _log.info(
         'pv.labels',
-        pv_labels=labels
+        pv_labels=pv.labels
     )
-    labels.update(pv.labels)
+    for key, value in pv.labels.items():
+        labels[f'pv_{key}'] = value
 
     claim_ref = pv.obj['spec'].get('claimRef')
 
     if claim_ref is not None:
-        pvc = await loop.run_in_executor(
-            ctx.executor,
-            (pykube.objects.PersistentVolumeClaim.objects(ctx.kube_client)
-             .get_or_none),
-            claim_ref['name']
-        )  # type: Optional[pykube.objects.PersistentVolumeClaim]
+        pvc_labels = await get_resource_labels(
+            ctx,
+            pykube.objects.PersistentVolumeClaim,
+            claim_ref['name'],
+            loop=loop,
+        )  # type: Dict[str, str]
 
-        if pvc is None:
-            _log.error(
-                'pvc.not-found',
-                message=f'Could not find a PersistentVolumeClaim with name '
-                        f'{pv_name}',
-            )
-        else:
-            _log.info(
-                'pvc.labels',
-                pvc_labels=labels,
-            )
-            labels.update(pvc.labels)
+        _log.info(
+            'pvc.labels',
+            pvc_labels=pvc_labels,
+        )
+        labels.update({
+            'pvc_name': claim_ref['name'],
+        })
+        for key, value in pvc_labels.items():
+            labels[f'pvc_{key}'] = value
 
     return labels
 

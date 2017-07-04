@@ -1,6 +1,8 @@
 import enum
+import json
 
 import attr
+import re
 
 from disk_usage_exporter.logging import Loggable
 
@@ -47,6 +49,9 @@ class Metrics(enum.Enum):
     )
 
 
+SAFE_LABEL_RE = re.compile(r'[^_a-z0-9]')
+
+
 @attr.s(slots=True)
 class MetricValue(Loggable):
     metric = attr.ib()  # type: Metrics
@@ -55,7 +60,7 @@ class MetricValue(Loggable):
 
     def __str__(self):
         label_pairs = ','.join(
-            f'{key}="{value}"'
+            f'{SAFE_LABEL_RE.sub("_", key)}={json.dumps(str(value))}'
             for key, value in self.labels.items()
         )
         if label_pairs:

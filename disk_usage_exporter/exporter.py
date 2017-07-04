@@ -34,7 +34,6 @@ class MetricsHandler:
         for values in path_values:
             for value in values:
                 b = str(value).encode('utf-8')
-                _log.debug('resp.write', b=b)
                 resp.write(b)
 
         await resp.drain()
