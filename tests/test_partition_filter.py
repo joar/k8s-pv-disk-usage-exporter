@@ -187,7 +187,7 @@ ALL_MOUNTPOINTS = (
 
 @pytest.mark.parametrize('partition', ALL_MOUNTPOINTS)
 def test_partition_filter(partition):
-    context = Context(export_all_mounts=False)
+    context = Context()
 
     included = collect.partition_filter(context, partition)
 
