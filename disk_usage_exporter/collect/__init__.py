@@ -1,105 +1,27 @@
 import asyncio
 import re
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict
 
-import attr
 import psutil
-import pykube
 import structlog
 
 from disk_usage_exporter.collect.kube import (
     get_resource,
     get_resource_labels
 )
+from disk_usage_exporter.collect.labels import (
+    partition_pv_labels,
+    labels_for_partition
+)
+from disk_usage_exporter.collect.partitions import (
+    Partition,
+    get_pv_name,
+    get_partitions as _get_partitions
+)
 from disk_usage_exporter.context import Context
-from disk_usage_exporter.errors import ResourceNotFound
-from disk_usage_exporter.logging import Loggable
 from disk_usage_exporter.metrics import MetricValue, Metrics
 
 _logger = structlog.get_logger(__name__)
-
-
-@attr.s(slots=True, frozen=True, hash=True)
-class Partition(Loggable):
-    """
-    Replaces psutil._common.sdiskpart, the attribute order must be the same
-    as sdiskpart.
-    """
-    device = attr.ib()  # type: str
-    mountpoint = attr.ib()  # type: str
-    fstype = attr.ib()  # type: str
-    opts = attr.ib()  # type: str
-
-
-CONTAINERIZED_MOUNTER_RE = re.compile(r'''
-^/rootfs/home/kubernetes/containerized_mounter/
-''', re.VERBOSE)
-
-
-def filter_containerized_mounter(partition) -> bool:
-    match = CONTAINERIZED_MOUNTER_RE.match(partition.mountpoint)
-
-    return match is None
-
-
-def filter_pv(partition: Partition) -> bool:
-    return get_pv_name(partition) is not None
-
-
-def partition_filter(ctx: Context, partition: Partition) -> bool:
-    is_not_mounter_volume = filter_containerized_mounter(partition)
-    is_mounted_on_host = partition.mountpoint.startswith(r'/rootfs')
-    is_pv = filter_pv(partition)
-
-    include = (
-        is_not_mounter_volume and
-        is_mounted_on_host and
-        is_pv
-    )
-
-    _log = _logger.new(
-        is_mounted_on_host=is_mounted_on_host,
-        is_pv=is_pv,
-        is_containerized_mounter=is_not_mounter_volume,
-        include=include
-    )
-
-    _log.debug(
-        'partition.filter',
-        key_hints=['included', 'is_pv', 'is_mounted_on_host']
-    )
-
-    return include
-
-
-async def get_partitions(
-        ctx: Context,
-        *, loop=None
-) -> List[Partition]:
-    loop = loop or asyncio.get_event_loop()
-
-    partitions = await loop.run_in_executor(
-        ctx.executor,
-        psutil.disk_partitions,
-    )  # type: List[psutil._common.sdiskpart]
-
-    all_partitions = [
-        Partition(*partition)
-        for partition in partitions
-    ]
-
-    partitions = [
-        partition for partition in all_partitions
-        if partition_filter(ctx, partition)
-    ]
-
-    _logger.debug(
-        'partitions.get',
-        key_hints=['partitions'],
-        partitions=partitions,
-        excluded=list(set(all_partitions) - set(partitions)),
-    )
-    return partitions
 
 
 def values_from_path(path: str, labels: Optional[Dict]=None) -> List[MetricValue]:
@@ -162,7 +84,7 @@ async def partition_metrics(
 
     try:
         pv_labels = pv_labels_fut.result()
-    except Exception as exc:
+    except Exception:
         _log.exception(
             'collect.partition-metrics.pv-labels.error',
             message='Could not get PV labels for partition',
@@ -184,141 +106,83 @@ async def partition_metrics(
     return metric_values
 
 
-def prefix_keys(prefix: str, dict_: Dict[str, Any]) -> Dict[str, Any]:
-    return {
-        f'{prefix}{key}': value
-        for key, value in dict_.items()
-    }
-
-
-async def partition_pv_labels(
-        ctx: Context,
-        partition: Partition,
-        *,
-        loop=None
-) -> Dict[str, str]:
-    loop = loop or asyncio.get_event_loop()
-    _log = _logger.new(
-        partition=partition
-    )
-    pv_name = get_pv_name(partition)
-
-    if pv_name is None:
-        _log.debug(
-            'partition.no-pv-labels',
-            message='Could not get PV name for partition',
-            partition=partition
-        )
-        raise ResourceNotFound(
-            'Could not get PV name for partition',
-            partition=partition
-        )
-
-    _log = _log.bind(pv_name=pv_name)
-
-    pv = await get_resource(
-        ctx,
-        pykube.objects.PersistentVolume,
-        pv_name,
-        loop=loop,
-    )  # type: pykube.objects.PersistentVolume
-
-    labels = {
-        'pv_name': pv_name
-    }
-
-    _log.info(
-        'pv.labels',
-        pv_labels=pv.labels
-    )
-    for key, value in pv.labels.items():
-        labels[f'pv_{key}'] = value
-
-    claim_ref = pv.obj['spec'].get('claimRef')
-
-    pvc_labels = None
-
-    if claim_ref is not None:
-        pvc_labels = await get_resource_labels(
-            ctx,
-            pykube.objects.PersistentVolumeClaim,
-            claim_ref['name'],
-            loop=loop,
-        )  # type: Dict[str, str]
-
-        _log.info(
-            'pvc.labels',
-            pvc_labels=pvc_labels,
-        )
-        labels.update({
-            'pvc_name': claim_ref['name'],
-        })
-        for key, value in pvc_labels.items():
-            labels[f'pvc_{key}'] = value
-
-    # Generalize PV and PVC labels under "volume", decide source based on if PVC
-    # has labels.
-    if pvc_labels is not None:
-        labels['volume_label_source'] = 'pvc'
-        labels['volume_name'] = claim_ref['name']
-        labels.update(prefix_keys('volume_', pvc_labels))
-    else:
-        labels['volume_label_source'] = 'pv'
-        labels['volume_name'] = pv.name
-        labels.update(prefix_keys('volume_', pv.labels))
-
-    return labels
-
-
 async def collect_metrics(ctx: Context, *, loop=None) -> List[List[MetricValue]]:
     loop = loop or asyncio.get_event_loop()
     _log = _logger.new()
 
-    partitions = await get_partitions(ctx)
+    partitions = await get_partitions(ctx, loop=loop)
+
+    _log = _log.bind(
+        partitions=partitions
+    )
 
     futures = [
-        partition_metrics(ctx, partition)
+        asyncio.ensure_future(partition_metrics(ctx, partition), loop=loop)
         for partition in partitions
     ]
 
-    _log.info('collect-metrics', partitions=partitions)
-    return await asyncio.gather(*futures)
+    _log.info('collect-metrics.start')
+    metrics = await asyncio.gather(*futures, loop=loop)
+    _log.info('collect-metrics.done', metrics=metrics)
+    return metrics
 
 
-# Example:
-# /rootfs/home/kubernetes/containerized_mounter/rootfs/var/lib/kubelet/pods/
-# 4bb9d022-5a63-11e7-ba69-42010af0012c/volumes/kubernetes.io~gce-pd/
-# pvc-4bb92cb4-5a63-11e7-ba69-42010af0012c
-MOUNTPOINT_PV_RE = re.compile(r'''
-^
-(?P<prefix>
-    .*
-    /kubelet/pods/
-    .*?
-    volumes/kubernetes.io
-    # A tilde, not a hyphen
-    ~
-    gce-pd/
-)
-(?P<pv_name>
-    [^/]+
-)
-$
+async def get_partitions(
+        ctx: Context,
+        *, loop=None
+) -> List[Partition]:
+    all_partitions = await _get_partitions(ctx, loop=loop)
+
+    filtered_partitions = [
+        partition for partition in all_partitions
+        if partition_filter(ctx, partition)
+    ]
+
+    _logger.debug(
+        'partitions.get',
+        key_hints=['partitions'],
+        partitions=filtered_partitions,
+        excluded=list(set(all_partitions) - set(filtered_partitions)),
+    )
+    return filtered_partitions
+
+
+def partition_filter(ctx: Context, partition: Partition) -> bool:
+    is_not_mounter_volume = filter_containerized_mounter(partition)
+    is_mounted_on_host = partition.mountpoint.startswith(r'/rootfs')
+    is_pv = filter_pv(partition)
+
+    include = (
+        is_not_mounter_volume and
+        is_mounted_on_host and
+        is_pv
+    )
+
+    _log = _logger.new(
+        is_mounted_on_host=is_mounted_on_host,
+        is_pv=is_pv,
+        is_containerized_mounter=is_not_mounter_volume,
+        include=include
+    )
+
+    _log.debug(
+        'partition.filter',
+        key_hints=['included', 'is_pv', 'is_mounted_on_host']
+    )
+
+    return include
+
+
+CONTAINERIZED_MOUNTER_RE = re.compile(r'''
+^/rootfs/home/kubernetes/containerized_mounter/
 ''', re.VERBOSE)
 
 
-def get_pv_name(partition: Partition) -> Optional[str]:
-    match = MOUNTPOINT_PV_RE.match(partition.mountpoint)
-    if match is None:
-        return
+def filter_containerized_mounter(partition) -> bool:
+    match = CONTAINERIZED_MOUNTER_RE.match(partition.mountpoint)
 
-    return match.group('pv_name')
+    return match is None
 
 
-ROOTFS_RE = re.compile(r'^/rootfs')
-
-
-def labels_for_partition(partition: Partition) -> Dict[str, str]:
-    labels = attr.asdict(partition)
-    labels['mountpoint'] = ROOTFS_RE.sub('', labels['mountpoint'])
-    return labels
+def filter_pv(partition: Partition) -> bool:
+    return get_pv_name(partition) is not None

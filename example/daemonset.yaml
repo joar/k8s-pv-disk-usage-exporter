@@ -1,0 +1,47 @@
+kind: DaemonSet
+piVersion: extensions/v1beta1
+metadata:
+  labels:
+    app: disk-usage-exporter
+  name: disk-usage-exporter
+spec:
+  template:
+    metadata:
+      labels:
+        app: radar-monitoring
+    spec:
+      containers:
+      - name: disk-usage-exporter
+        image: quay.io/joar/disk-usage-exporter:latest
+
+        securityContext:
+          # XXX: If this is not set, disk-usage-exporter will not be able to
+          # find any mounted PVs.
+          # There might be a better, more fine-tuned setting to use, but I have
+          # not yet found one.
+          privileged: true
+
+        command:
+        - disk-usage-exporter
+
+        ports:
+        - name: pv-metrics
+          containerPort: 9274
+
+        resources:
+          requests:
+            cpu: 100m
+            memory: 100M
+
+        volumeMounts:
+            # It is important that mountPath is '/rootfs', since
+            # disk-usage-exporter uses that hard-coded value to filter the
+            # partitions returned by psutil.disk_partitions().
+          - mountPath: /rootfs  
+            name: rootfs
+            readOnly: true  # We only need read-access
+
+      volumes:
+        - name: rootfs
+          hostPath:
+            path: /

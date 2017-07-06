@@ -39,7 +39,7 @@ def main(argv=None):
              'lines by default',
     )
 
-    args = parser.parse_args(args=argv)
+    args = parser.parse_args(args=argv) # type: argparse.Namespace
 
     configure_logging(
         for_humans=args.log_human,
@@ -48,6 +48,8 @@ def main(argv=None):
 
     context = Context()
 
+    _logger.info('starting', args=args)
+
     web.run_app(
         get_app(context),
         host=args.listen_host,
@@ -55,6 +57,7 @@ def main(argv=None):
         access_log=structlog.get_logger(f'{__package__}.access_log'),
         print=lambda x: _logger.info('run_app.print', message=x),
     )
+    _logger.info('stopped')
 
 
 if __name__ == '__main__':

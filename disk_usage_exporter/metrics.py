@@ -1,5 +1,6 @@
 import enum
 import json
+from typing import SupportsBytes
 
 import attr
 import re
@@ -16,7 +17,7 @@ class MetricValueType(enum.Enum):
 
 
 @attr.s(slots=True)
-class Metric(Loggable):
+class Metric(Loggable, SupportsBytes):
     name = attr.ib()  # type: str
     value_type = attr.ib()  # type: MetricValueType
     help = attr.ib(default='')  # type: str
@@ -24,6 +25,9 @@ class Metric(Loggable):
     def __str__(self):
         return f'# HELP {self.name} {self.help}\n' \
                f'# TYPE {self.name} {self.value_type.name}\n'
+
+    def __bytes__(self):
+        return str(self).encode('utf-8')
 
 
 class Metrics(enum.Enum):
@@ -47,13 +51,23 @@ class Metrics(enum.Enum):
         MetricValueType.GAUGE,
         'Total bytes of user storage',
     )
+    TIMING_COLLECT_SECONDS = Metric(
+        'pv_disk_usage_timing_collect_seconds',
+        MetricValueType.GAUGE,
+        'Seconds taken to collect metrics',
+    )
+    TIMING_TOTAL_SECONDS = Metric(
+        'pv_disk_usage_timing_total_seconds',
+        MetricValueType.GAUGE,
+        'Seconds taken to handle a response',
+    )
 
 
 SAFE_LABEL_RE = re.compile(r'[^_a-z0-9]')
 
 
 @attr.s(slots=True)
-class MetricValue(Loggable):
+class MetricValue(Loggable, SupportsBytes):
     metric = attr.ib()  # type: Metrics
     value = attr.ib()
     labels = attr.ib(default=attr.Factory(dict))
@@ -67,3 +81,6 @@ class MetricValue(Loggable):
             label_pairs = '{' + label_pairs + '}'
 
         return f'{self.metric.value.name}{label_pairs} {self.value!r}\n'
+
+    def __bytes__(self):
+        return str(self).encode('utf-8')

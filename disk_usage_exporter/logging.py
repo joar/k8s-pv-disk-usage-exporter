@@ -71,17 +71,17 @@ def add_message(logger, method_name, event_dict):
     ]
     hints += from_key_hints(event_dict)
 
-    if all(hint is None for hint in hints):
-        return event_dict
+    if any(hint is not None for hint in hints):
+        prefix = event_dict['event']
+        hint = ', '.join(hint for hint in hints if hint is not None)
 
-    prefix = event_dict['event']
-    hint = ', '.join(hint for hint in hints if hint is not None)
-
-    message = event_dict.get('message')
-    if message is not None:
-        message = f'{prefix}: {message}, {hint}'
+        message = event_dict.get('message')
+        if message is not None:
+            message = f'{prefix}: {message}, {hint}'
+        else:
+            message = f'{prefix}: {hint}'
     else:
-        message = f'{prefix}: {hint}'
+        message = event_dict.get('event')
 
     event_dict['message'] = message
     return event_dict
