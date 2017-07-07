@@ -2,6 +2,7 @@ import structlog
 import time
 from aiohttp import web
 
+from disk_usage_exporter.version import __version__
 from disk_usage_exporter.collect import collect_metrics
 from disk_usage_exporter.context import Context
 from disk_usage_exporter.metrics import Metrics, MetricValue
@@ -72,7 +73,12 @@ class MetricsHandler:
         return resp
 
 
+async def on_prepare_add_version_header(request, response):
+    response.headers['Server'] = f'disk-usage-exporter/{__version__}'
+
+
 def get_app(context):
     app = web.Application()
+    app.on_response_prepare.append(on_prepare_add_version_header)
     app.router.add_get('/metrics', MetricsHandler(context))
     return app
