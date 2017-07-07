@@ -71,19 +71,27 @@ def add_message(logger, method_name, event_dict):
     ]
     hints += from_key_hints(event_dict)
 
+    existing_message = event_dict.get('message')
+
+    # The new message
+    message = None
+
     if any(hint is not None for hint in hints):
         prefix = event_dict['event']
         hint = ', '.join(hint for hint in hints if hint is not None)
 
-        message = event_dict.get('message')
-        if message is not None:
-            message = f'{prefix}: {message}, {hint}'
+        if existing_message is not None:
+            # Use existing message in the new hint-based message
+            message = f'{prefix}: {existing_message}, {hint}'
         else:
             message = f'{prefix}: {hint}'
-    else:
+    elif existing_message is None:
+        # Use "event" as default message
         message = event_dict.get('event')
 
-    event_dict['message'] = message
+    if message is not None:
+        event_dict['message'] = message
+
     return event_dict
 
 
@@ -117,6 +125,7 @@ def configure_logging(for_humans=False, level=logging.INFO):
     if for_humans:
         foreign_pre_chain += [
             structlog.processors.format_exc_info,
+            add_message,
         ]
 
     processors = [
