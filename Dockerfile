@@ -13,7 +13,7 @@ RUN apk add --no-cache --virtual .build-deps \
     && apk del .build-deps
 
 # Add application code
-COPY  setup.py LICENSE /app/
+COPY  setup.py LICENSE README.rst /app/
 COPY ./disk_usage_exporter /app/disk_usage_exporter
 
 # Install application package
