@@ -14,9 +14,9 @@ from disk_usage_exporter.collect.labels import (
     labels_for_partition
 )
 from disk_usage_exporter.collect.partitions import (
-    Partition,
+    Mount,
     get_pv_name,
-    get_partitions as _get_partitions
+    list_mounts as _get_partitions
 )
 from disk_usage_exporter.context import Context
 from disk_usage_exporter.metrics import MetricValue, Metrics
@@ -57,7 +57,7 @@ def values_from_path(path: str, labels: Optional[Dict]=None) -> List[MetricValue
 
 async def partition_metrics(
         ctx: Context,
-        partition: Partition,
+        partition: Mount,
         *, loop=None
 ) -> List[MetricValue]:
     loop = loop or asyncio.get_event_loop()
@@ -65,18 +65,18 @@ async def partition_metrics(
         partition=partition
     )
 
-    metric_values_fut = asyncio.ensure_future(
+    metric_values_fut: asyncio.Future = asyncio.ensure_future(
         loop.run_in_executor(
             ctx.executor,
             values_from_path,
             partition.mountpoint,
             labels_for_partition(partition),
         )
-    )  # type: asyncio.Task
+    )
 
-    pv_labels_fut = asyncio.ensure_future(
+    pv_labels_fut: asyncio.Future = asyncio.ensure_future(
         partition_pv_labels(ctx, partition, loop=loop)
-    )  # type: asyncio.Task
+    )
 
     await asyncio.wait([metric_values_fut, pv_labels_fut])
 
@@ -110,7 +110,7 @@ async def collect_metrics(ctx: Context, *, loop=None) -> List[List[MetricValue]]
     loop = loop or asyncio.get_event_loop()
     _log = _logger.new()
 
-    partitions = await get_partitions(ctx, loop=loop)
+    partitions = await pv_mounts(ctx, loop=loop)
 
     _log = _log.bind(
         partitions=partitions
@@ -127,10 +127,10 @@ async def collect_metrics(ctx: Context, *, loop=None) -> List[List[MetricValue]]
     return metrics
 
 
-async def get_partitions(
+async def pv_mounts(
         ctx: Context,
         *, loop=None
-) -> List[Partition]:
+) -> List[Mount]:
     all_partitions = await _get_partitions(ctx, loop=loop)
 
     filtered_partitions = [
@@ -147,7 +147,7 @@ async def get_partitions(
     return filtered_partitions
 
 
-def partition_filter(ctx: Context, partition: Partition) -> bool:
+def partition_filter(ctx: Context, partition: Mount) -> bool:
     is_not_mounter_volume = filter_containerized_mounter(partition)
     is_mounted_on_host = partition.mountpoint.startswith(r'/rootfs')
     is_pv = filter_pv(partition)
@@ -184,5 +184,5 @@ def filter_containerized_mounter(partition) -> bool:
     return match is None
 
 
-def filter_pv(partition: Partition) -> bool:
+def filter_pv(partition: Mount) -> bool:
     return get_pv_name(partition) is not None

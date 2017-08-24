@@ -7,7 +7,7 @@ import attr
 import structlog
 
 
-class Loggable:
+class Loggable(Dict[str, Any]):
     def __structlog__(self):
         if attr.has(type(self)):
             return attr.asdict(self)
@@ -34,12 +34,12 @@ def add_message(logger, method_name, event_dict):
         except Exception as exc:
             return f'! error formatting message: {exc!r}'
 
-    def path_value(dict_: Dict[str, Any], key_path: str) -> Optional[Any]:
-        value = dict_
+    def path_value(start: Loggable, key_path: str) -> Optional[Any]:
+        value = start
 
         for key in key_path.split('.'):
             if value is None:
-                return
+                return None
             if hasattr(value, '__structlog__'):
                 value = value.__structlog__()
             value = value.get(key)
@@ -49,7 +49,7 @@ def add_message(logger, method_name, event_dict):
     def from_key_hint(ed) -> Optional[str]:
         key_hint = ed.pop('key_hint', None)
         if key_hint is None:
-            return
+            return None
 
         value = path_value(ed, key_hint)
 

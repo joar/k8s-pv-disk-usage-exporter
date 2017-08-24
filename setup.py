@@ -44,5 +44,21 @@ setup(
         'console_scripts': [
             'disk-usage-exporter = disk_usage_exporter.__main__:main'
         ]
+    },
+    install_requires=[
+        'psutil >=5.2.2',
+        'aiohttp >=2.2.0',
+        'attrs >=17.2.0',
+        'structlog[dev] >=17.2.0',
+        'pykube >=0.15.0',
+        'pytest >=3.1.2',
+    ],
+    extras_require={
+        'dev': [
+            'zest.releaser[recommended] >=6.12.3',
+            'mypy>=0.521',
+            'lxml >=3.8.0',  # Used by mypy --html-report
+            'pytest>=3.1.2',
+        ]
     }
 )

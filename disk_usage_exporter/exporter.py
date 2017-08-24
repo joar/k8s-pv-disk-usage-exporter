@@ -11,7 +11,7 @@ _logger = structlog.get_logger(__name__)
 
 
 class MetricsHandler:
-    def __init__(self, context: Context):
+    def __init__(self, context: Context) -> None:
         self.ctx = context
         _logger.debug('metrics.create-handler', context=context)
 

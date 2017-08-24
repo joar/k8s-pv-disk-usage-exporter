@@ -54,9 +54,9 @@ won't be able to access PV mountpoints.
 |name| responds to HTTP requests to ``/metrics``, for each metric |name| will:
 
 1.  Run |disk_partitions|_ to find all the mounts.
-#.  Extract the PV name from ``Partition.mountpoint``.
+#.  Extract the PV name from ``Mount.mountpoint``.
 #.  Filter partitions to only include partitions matching the PersistentVolume
-    name matching heuristic on ``Partition.mountpoint``.
+    name matching heuristic on ``Mount.mountpoint``.
 #.  For each partition:
 
     a.  Run |disk_usage|_.

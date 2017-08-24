@@ -1,5 +1,5 @@
 import asyncio
-from typing import Dict, Optional
+from typing import Dict, Optional, Type
 
 import pykube
 import structlog
@@ -12,7 +12,7 @@ _logger = structlog.get_logger(__name__)
 
 def _get_resource(
         client: pykube.HTTPClient,
-        resource_type: type(pykube.objects.APIObject),
+        resource_type: Type[pykube.objects.APIObject],
         resource_name: str
 ):
     try:
@@ -23,9 +23,10 @@ def _get_resource(
 
 async def get_resource(
         ctx: Context,
-        resource_type: type(pykube.objects.APIObject),
+        resource_type: Type[pykube.objects.APIObject],
         resource_name: str,
-        *, loop=None
+        *,
+        loop=None
 ) -> pykube.objects.APIObject:
     loop = loop or asyncio.get_event_loop()
 
@@ -60,7 +61,7 @@ async def get_resource(
 
 async def get_resource_labels(
         ctx: Context,
-        resource_type: type(pykube.objects.APIObject),
+        resource_type: Type[pykube.objects.APIObject],
         resource_name: str,
         *, loop=None
 ) -> Dict[str, str]:

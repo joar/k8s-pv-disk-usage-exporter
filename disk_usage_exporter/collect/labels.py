@@ -1,6 +1,6 @@
 import asyncio
 import re
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Pattern
 
 import attr
 import itertools
@@ -12,13 +12,15 @@ from disk_usage_exporter.collect.kube import (
     get_resource_labels
 )
 from disk_usage_exporter.collect.partitions import (
-    Partition,
+    Mount,
     get_pv_name
 )
 from disk_usage_exporter.context import Context
-from disk_usage_exporter.errors import ResourceNotFound
+from disk_usage_exporter.errors import ResourceNotFound, LoggableError
 
 _logger = structlog.get_logger(__name__)
+
+Labels = Dict[str, str]
 
 
 def merge(*dicts: Dict) -> Dict:
@@ -39,10 +41,10 @@ def prefix_keys(prefix: str, dict_: Dict[str, Any]) -> Dict[str, Any]:
 
 async def partition_pv_labels(
         ctx: Context,
-        partition: Partition,
+        partition: Mount,
         *,
         loop=None
-) -> Dict[str, str]:
+) -> Labels:
     loop = loop or asyncio.get_event_loop()
     _log = _logger.new(
         partition=partition
@@ -64,10 +66,10 @@ async def partition_pv_labels(
 
     pv = await get_resource(
         ctx,
-        pykube.objects.PersistentVolume,
+        pykube.PersistentVolume,
         pv_name,
         loop=loop,
-    )  # type: pykube.objects.PersistentVolume
+    )  # type: pykube.PersistentVolume
 
     labels = {
         'pv_name': pv_name
@@ -77,21 +79,23 @@ async def partition_pv_labels(
 
     claim_ref = pv.obj['spec'].get('claimRef')
 
-    pvc = None
+    pvc: Optional[pykube.PersistentVolume]
 
     if claim_ref is not None:
         pvc = await get_resource(
             ctx,
-            pykube.objects.PersistentVolumeClaim,
+            pykube.PersistentVolumeClaim,
             claim_ref['name'],
             loop=loop,
-        )  # type: pykube.objects.PersistentVolumeClaim
+        )
 
         labels.update({
             'pvc_name': claim_ref['name'],
         })
 
         labels.update(prefix_keys('pvc_', pvc.labels))
+    else:
+        pvc = None
 
     labels.update(volume_labels(pv, pvc))
 
@@ -99,8 +103,8 @@ async def partition_pv_labels(
 
 
 def pv_backend_labels(
-        pv: pykube.objects.PersistentVolume
-) -> Dict[str, str]:
+        pv: pykube.PersistentVolume
+) -> Labels:
     """
     Get labels for persistent disk type and backend name.
     """
@@ -110,12 +114,14 @@ def pv_backend_labels(
             'type': 'gce-pd',
             'instance': gce_pd['pdName'],
         }
+    else:
+        return {}
 
 
 def volume_labels(
-        pv: pykube.objects.PersistentVolume,
-        pvc: Optional[pykube.objects.PersistentVolumeClaim]=None
-) -> Dict[str, str]:
+        pv: pykube.PersistentVolume,
+        pvc: Optional[pykube.PersistentVolumeClaim]=None
+) -> Labels:
     # Generalize PV and PVC labels under "volume", decide source based on if PVC
     # has labels.
     if pvc is not None and pvc.labels:
@@ -137,10 +143,10 @@ def volume_labels(
     )
 
 
-ROOTFS_RE = re.compile(r'^/rootfs')
+ROOTFS_RE: Pattern = re.compile(r'^/rootfs')
 
 
-def labels_for_partition(partition: Partition) -> Dict[str, str]:
+def labels_for_partition(partition: Mount) -> Labels:
     labels = attr.asdict(partition)
     labels['mountpoint'] = ROOTFS_RE.sub('', labels['mountpoint'])
     return labels
