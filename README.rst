@@ -1,5 +1,7 @@
 .. vim:tabstop=4:shiftwidth=4:softtabstop=4:
 
+\:warning: This approach does not work, but `Kubernetes 1.8 might Just Work(tm) <https://stackoverflow.com/a/47117776/202522>`_
+
 .. |name| replace:: ``k8s-pv-disk-usage-exporter``
 
 ################################################################################
